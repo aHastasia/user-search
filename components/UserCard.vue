@@ -20,6 +20,7 @@
 <script>
 export default {
   name: 'UserCard',
+
   props: {
     user: {
       type: Object,
@@ -38,16 +39,19 @@ export default {
       default: '',
     },
   },
+
   data() {
     return {
       isSkipped: false,
     };
   },
+
   computed: {
     actionButtonLabel(user) {
       return user.isSkipped ? 'MARK AS SUITABLE' : 'SKIP SELECTION';
     },
   },
+
   methods: {
     insertDefaultImage(event) {
       event.target.src = require('~/assets/images/default-avatar.png');

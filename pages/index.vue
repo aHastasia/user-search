@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <div class="form">
+    <div ref="form" class="form">
       <div class="searchWrapper">
         <label>
           <input v-model.trim="keyword" class="search" />
@@ -10,14 +10,10 @@
         <p v-if="$fetchState.pending">Fetching users...</p>
         <p v-else-if="$fetchState.error">Something went wrong :(</p>
         <template v-else>
-          <template v-if="filteredUsers && filteredUsers.length > 0">
-            <UserCard
-              v-for="user of filteredUsers"
-              v-show="user.filtered"
-              :key="user.id"
-              :user="user"
-              :keyword="keyword"
-            />
+          <template v-if="filteredUsers.length > 0">
+            <template v-for="user of scrolledUsers">
+              <UserCard :key="user.id" :user="user" :keyword="keyword" />
+            </template>
           </template>
           <div v-else>No users found</div>
         </template>
@@ -27,15 +23,20 @@
 </template>
 
 <script>
-import cloneDeep from 'lodash-es/cloneDeep';
 import debounce from 'lodash-es/debounce';
 import memoize from 'lodash-es/memoize';
 import reduce from 'lodash-es/reduce';
 import shortid from 'shortid';
 import UserCard from '~/components/UserCard';
 
+const USERS_URL =
+  'https://gist.githubusercontent.com/allaud/093aa499998b7843bb10b44ea6ea02dc/raw/c400744999bf4b308f67807729a6635ced0c8644/users.json';
+const SCROLL_USERS_OFFSET = 50;
+const SEARCH_DELAY = 1000;
+
 export default {
   components: { UserCard },
+
   asyncData({ params }) {
     let keyword = '';
 
@@ -45,20 +46,21 @@ export default {
 
     return { keyword };
   },
+
   data() {
     return {
       users: [],
       flattenUsers: [],
       filteredUsers: [],
+      scrolledUsers: [],
       keyword: '',
     };
   },
+
   async fetch() {
     let usersData = [];
     try {
-      usersData = await fetch(
-        'https://gist.githubusercontent.com/allaud/093aa499998b7843bb10b44ea6ea02dc/raw/c400744999bf4b308f67807729a6635ced0c8644/users.json',
-      ).then((res) => res.json());
+      usersData = await fetch(USERS_URL).then((res) => res.json());
     } catch (err) {
       console.error(err);
     }
@@ -77,55 +79,80 @@ export default {
           '',
         ),
       );
-      this.users.push({ ...user, id: shortid.generate(), filtered: true });
+      this.users.push({ ...user, id: shortid.generate() });
     });
+
     await this.filterUsers(this.formattedKeyword);
   },
+
   computed: {
     formattedKeyword() {
       return this.keyword ? this.keyword.toLowerCase().trim() : '';
     },
   },
+
   watch: {
     async keyword() {
       await this.filterUsers(this.formattedKeyword);
     },
+
+    filteredUsers() {
+      this.$refs.form.scrollTop = 0;
+      this.scrolledUsers = this.filteredUsers.slice(0, SCROLL_USERS_OFFSET);
+    },
   },
+
   created() {
+    this.scrolledUsers = this.filteredUsers.slice(0, SCROLL_USERS_OFFSET);
     const memoizedSearch = memoize(this.search);
     this.debouncedSearch = debounce((key, resolve) => {
       this.filteredUsers = memoizedSearch(key);
       resolve();
-    }, 1000);
+    }, SEARCH_DELAY);
   },
+
+  mounted() {
+    this.setScrollHandler();
+  },
+
   methods: {
-    // Without v-show
-    // search(searchKeyword) {
-    //   console.log('searchKeyword: ', searchKeyword);
-    //   return this.flattenUsers.reduce((result, currentVal, index) => {
-    //     if (currentVal.includes(searchKeyword)) {
-    //       result.push({ ...this.users[index] });
-    //     }
-    //
-    //     return result;
-    //   }, []);
-    // },
     search(searchKeyword) {
-      return this.flattenUsers.map((item, index) => {
-        const filtered = item.includes(searchKeyword);
-        return { ...this.users[index], filtered };
-      });
+      return this.flattenUsers.reduce((result, currentVal, index) => {
+        if (currentVal.includes(searchKeyword)) {
+          result.push({ ...this.users[index] });
+        }
+
+        return result;
+      }, []);
     },
 
     filterUsers(keyword) {
       return new Promise((resolve) => {
         if (!keyword) {
-          this.filteredUsers = cloneDeep(this.users);
+          this.filteredUsers = this.users;
+          this.debouncedSearch.cancel();
           resolve();
         } else {
           this.debouncedSearch(keyword, resolve);
         }
       });
+    },
+
+    updateScrolledUsers() {
+      const bottomOfForm = this.$refs.form.scrollTop + this.$refs.form.offsetHeight >= this.$refs.form.scrollHeight;
+
+      if (bottomOfForm) {
+        const scrolledUsersLength = this.scrolledUsers.length;
+        const filteredUsersToInsert = this.filteredUsers.slice(
+          scrolledUsersLength,
+          scrolledUsersLength + SCROLL_USERS_OFFSET,
+        );
+        this.scrolledUsers = [...this.scrolledUsers, ...filteredUsersToInsert];
+      }
+    },
+
+    setScrollHandler() {
+      this.$refs.form.onscroll = this.updateScrolledUsers;
     },
   },
 };
@@ -161,6 +188,7 @@ export default {
 .form::-webkit-scrollbar {
   width: 6px;
 }
+
 .form::-webkit-scrollbar-thumb {
   background-color: grey;
   border-radius: 6px;
@@ -168,7 +196,7 @@ export default {
 
 .searchWrapper {
   position: sticky;
-  top: 0;
+  top: -1px;
   padding: 20px 28px 20px 12px;
   background-color: #fff;
 }
